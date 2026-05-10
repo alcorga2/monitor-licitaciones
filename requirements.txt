@@ -2,3 +2,4 @@ streamlit
 feedparser
 xmltodict
 pandas
+google-generativeai
