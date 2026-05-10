@@ -1,0 +1,53 @@
+name: Robot Diario de Licitaciones
+
+on:
+  schedule:
+    - cron: '0 8 * * *' # Esto significa: todos los días a las 08:00 AM
+  workflow_dispatch: # Esto permite que tú puedas darle a un botón para ejecutarlo cuando quieras
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v3
+
+      - name: Configurar Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Instalar herramientas
+        run: |
+          pip install feedparser xmltodict
+
+      - name: Ejecutar búsqueda de licitaciones
+        run: |
+          python -c "
+          import sqlite3, feedparser, xmltodict, datetime
+          url = 'https://contrataciondelestado.es/sindicacion/sindicacion_643/licitacionesPerfilesContratanteCompleto3.atom'
+          conn = sqlite3.connect('licitaciones_agua_v2.db')
+          c = conn.cursor()
+          feed = feedparser.parse(url)
+          for entry in feed.entries:
+              try:
+                  xml_raw = entry.content[0].value
+                  if '384211' in xml_raw or '384210' in xml_raw or 'contador' in entry.title.lower():
+                      id_lic = xmltodict.parse(xml_raw, process_namespaces=False)['ContractFolderStatus']['ContractFolderID']
+                      c.execute('SELECT id_expediente FROM licitaciones WHERE id_expediente=?', (id_lic,))
+                      if not c.fetchone():
+                          c.execute('INSERT INTO licitaciones (id_expediente, titulo, fecha_publicacion, enlace) VALUES (?, ?, ?, ?)', 
+                                    (id_lic, entry.title, entry.updated[:10], entry.link))
+                          print(f'Encontrada: {entry.title}')
+              except: pass
+          conn.commit()
+          conn.close()
+          "
+
+      - name: Guardar cambios en la base de datos
+        run: |
+          git config --global user.name 'Robot-Licitador'
+          git config --global user.email 'robot@bot.com'
+          git add licitaciones_agua_v2.db
+          git commit -m "Actualización diaria de licitaciones" || exit 0
+          git push
